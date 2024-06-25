@@ -6,7 +6,18 @@ in the test dataset we will provide later, you will not have access
 to this and you will need to output your predictions for the images of the test set
 to a file, which we will grade using github classrooms!
 """
+
 from __future__ import annotations
+import sys
+import os
+
+# Determine the path to the src directory
+src_path = os.path.join(os.path.dirname(__file__), 'src')
+
+# Add the src directory to the system path if it's not already there
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
 
 from pathlib import Path
 from sklearn.metrics import accuracy_score
@@ -43,8 +54,8 @@ def main(
     # As a general rule of thumb, you should **never** pass in any
     # test data to your AutoML solution other than to generate predictions.
     automl = AutoML(seed=seed)
-    # load the dataset and create a loader then pass it
-    automl.fit(dataset_class)
+    # Perform Bayesian optimization to find the best hyperparameters
+    automl.optimize_hyperparameters(dataset_class=dataset_class)
     # Do the same for the test dataset
     test_preds, test_labels = automl.predict(dataset_class)
 
