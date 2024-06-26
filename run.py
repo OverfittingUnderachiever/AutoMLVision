@@ -22,6 +22,7 @@ if src_path not in sys.path:
     sys.path.append(src_path)
 
 from automl.automl import AutoML
+
 import argparse
 
 import logging
@@ -59,8 +60,22 @@ def main(
     # As a general rule of thumb, you should **never** pass in any
     # test data to your AutoML solution other than to generate predictions.
     automl = AutoML(seed=seed)
-    # load the dataset and create a loader then pass it
-    automl.fit(dataset_class)
+    # Define the hyperparameter search space
+    pbounds = {
+        'lr': (0.0001, 0.01),      # Example learning rate range
+        'batch_size': (16, 128)     # Example batch size choices
+    }
+    # Perform hyperparameter optimization
+    automl.optimize_hyperparameters(dataset_class, pbounds=pbounds, init_points=2, n_iter=2)
+    logger.info(f"Best hyperparameters: {automl.optimizer.max}")
+    
+    # Get the best hyperparameters found
+    best_lr = automl.optimizer.max['params']['lr']
+    best_batch_size = int(round(automl.optimizer.max['params']['batch_size'])) #no bo support for ints :()
+
+    # Fit the best model on the entire dataset
+    automl.fit(dataset_class, epochs=3, lr=best_lr, batch_size=best_batch_size)
+
     # Do the same for the test dataset
     test_preds, test_labels = automl.predict(dataset_class)
 
@@ -75,6 +90,9 @@ def main(
 
 
     if not np.isnan(test_labels).any():
+            # Ensure both predictions and labels are in the correct format (1-dimensional arrays)
+        test_preds = test_preds.astype(np.int64)  # Ensure predictions are integers
+        test_labels = test_labels.astype(np.int64)  # Ensure labels are integers
         acc = accuracy_score(test_labels, test_preds)
         logger.info(f"Accuracy on test set: {acc}")
     else:
