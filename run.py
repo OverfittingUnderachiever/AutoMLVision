@@ -11,6 +11,16 @@ from __future__ import annotations
 from pathlib import Path
 from sklearn.metrics import accuracy_score
 import numpy as np
+
+# Determine the path to the src directory
+import sys
+import os
+src_path = os.path.join(os.path.dirname(__file__), 'src')
+
+# Add the src directory to the system path if it's not already there
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
 from automl.automl import AutoML
 import argparse
 

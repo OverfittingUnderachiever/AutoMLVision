@@ -15,9 +15,12 @@ import logging
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
-
 from automl.dummy_model import DummyNN
 from automl.utils import calculate_mean_std
+
+
+from bayes_opt import BayesianOptimization
+
 
 
 logger = logging.getLogger(__name__)
