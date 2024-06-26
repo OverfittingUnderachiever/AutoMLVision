@@ -78,9 +78,7 @@ class BaseVisionDataset(VisionDataset):
            not (test_images_folder.exists() and test_images_folder.is_dir()):
             return False
 
-        for filename, md5 in [("train.csv", self._md5_train), ("test.csv", self._md5_test)]:
-            if not check_integrity(str(self._base_folder / filename), md5):
-                return False
+        
         return True
 
     def download(self):
@@ -135,6 +133,21 @@ class EmotionsDataset(BaseVisionDataset):
     channels = 1
     num_classes = 7
 
+class EmotionsMiniDataset(BaseVisionDataset):
+    """ Emotions Dataset.
+
+    This dataset contains images of faces displaying in to one of seven emotions
+    (0=Angry, 1=Disgust, 2=Fear, 3=Happy, 4=Sad, 5=Surprise, 6=Neutral).
+    """
+    _download_file = ("emotions.tgz", "e8302a10bc38a7bfb2e60c67b6bab1e4")
+    _dataset_name = "emotions_mini"
+    _md5_train = "7a48baafcddeb5b9caaa01c5b9fcd309"
+    _md5_test = "6a4b219c98be434ca0c79da2df3b2f35"
+    width = 48
+    height = 48
+    channels = 1
+    num_classes = 7
+
 
 class FlowersDataset(BaseVisionDataset):
     """Flower Dataset.
@@ -150,6 +163,20 @@ class FlowersDataset(BaseVisionDataset):
     channels = 3
     num_classes = 102
 
+class FlowersMiniDataset(BaseVisionDataset):
+    """Flower Dataset.
+
+    This dataset contains images of 102 types of flowers. The task is to classify the flower type.
+    """
+    _download_file = ("flowers.tgz", "31ff68dec06e95997aa4d77cd1eb5744")
+    _dataset_name = "flowers_mini"
+    _md5_train = "08f3283cfa42d37755bcf972ed368264"
+    _md5_test = "778c82088dc9fc3659e9f14614b20735"
+    width = 512
+    height = 512
+    channels = 3
+    num_classes = 102
+
 
 class FashionDataset(BaseVisionDataset):
     """Fashion Dataset.
@@ -158,6 +185,20 @@ class FashionDataset(BaseVisionDataset):
     """
     _download_file = ("fashion.tgz", "ec70b7addb6493d4e3d57939ff76e2d5")
     _dataset_name = "fashion"
+    _md5_train = "a364148066eb5bace445e4c9e7fb95d4"
+    _md5_test = "1d0bf72b43a3280067abb82d91c0c245"
+    width = 28
+    height = 28
+    channels = 1
+    num_classes = 10
+
+class FashionMiniDataset(BaseVisionDataset):
+    """Fashion Dataset.
+
+    This dataset contains images of fashion items. The task is to classify what kind of fashion item it is.
+    """
+    _download_file = ("fashion.tgz", "ec70b7addb6493d4e3d57939ff76e2d5")
+    _dataset_name = "fashion_mini"
     _md5_train = "a364148066eb5bace445e4c9e7fb95d4"
     _md5_test = "1d0bf72b43a3280067abb82d91c0c245"
     width = 28

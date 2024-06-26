@@ -26,7 +26,7 @@ import argparse
 
 import logging
 
-from automl.datasets import FashionDataset, FlowersDataset, EmotionsDataset
+from automl.datasets import FashionDataset, FlowersDataset, EmotionsDataset, FashionMiniDataset, FlowersMiniDataset, EmotionsMiniDataset
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,12 @@ def main(
             dataset_class = FlowersDataset
         case "emotions":
             dataset_class = EmotionsDataset
+        case "fashion_mini":
+            dataset_class = FashionMiniDataset
+        case "flowers_mini":
+            dataset_class = FlowersMiniDataset
+        case "emotions_mini":
+            dataset_class = EmotionsMiniDataset
         case _:
             raise ValueError(f"Invalid dataset: {args.dataset}")
 
@@ -85,7 +91,7 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="The name of the dataset to run on.",
-        choices=["fashion", "flowers", "emotions"]
+        choices=["fashion", "flowers", "emotions", "fashion_mini", "flowers_mini", "emotions_mini"]
     )
     parser.add_argument(
         "--output-path",
