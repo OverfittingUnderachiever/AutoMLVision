@@ -3,8 +3,8 @@ name = "automl"
 license = { file = "LICENSE" }
 # Feel free to change from here
 version = "0.1.0"
-dependencies = ["torchvision", "pandas", "scikit-learn", "numpy<2.0", "IPython"]
-requires-python = ">=3.8"
+dependencies = ["torchvision", "pandas", "scikit-learn", "numpy<2", "IPython","bayesian-optimization"]
+requires-python = ">=3.11.0"
 authors = [{ name = "user", email = "user@user.com" }]
 readme = "README.md"
 description = "AutoML SS24 Exam - Vision"
