@@ -22,12 +22,22 @@ if src_path not in sys.path:
 from pathlib import Path
 from sklearn.metrics import accuracy_score
 import numpy as np
+
+# Determine the path to the src directory
+import sys
+import os
+src_path = os.path.join(os.path.dirname(__file__), 'src')
+
+# Add the src directory to the system path if it's not already there
+if src_path not in sys.path:
+    sys.path.append(src_path)
+
 from automl.automl import AutoML
 import argparse
 
 import logging
 
-from automl.datasets import FashionDataset, FlowersDataset, EmotionsDataset
+from automl.datasets import FashionDataset, FlowersDataset, EmotionsDataset, FashionMiniDataset, FlowersMiniDataset, EmotionsMiniDataset
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +54,12 @@ def main(
             dataset_class = FlowersDataset
         case "emotions":
             dataset_class = EmotionsDataset
+        case "fashion_mini":
+            dataset_class = FashionMiniDataset
+        case "flowers_mini":
+            dataset_class = FlowersMiniDataset
+        case "emotions_mini":
+            dataset_class = EmotionsMiniDataset
         case _:
             raise ValueError(f"Invalid dataset: {args.dataset}")
 
@@ -86,7 +102,7 @@ if __name__ == "__main__":
         type=str,
         required=True,
         help="The name of the dataset to run on.",
-        choices=["fashion", "flowers", "emotions"]
+        choices=["fashion", "flowers", "emotions", "fashion_mini", "flowers_mini", "emotions_mini"]
     )
     parser.add_argument(
         "--output-path",
