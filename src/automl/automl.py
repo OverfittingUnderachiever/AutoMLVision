@@ -29,6 +29,9 @@ class AutoML:
         torch.cuda.manual_seed(self.seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+        # Check if CUDA is available and set the device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {self.device}")
 
     def _create_model(self, input_size: int, num_classes: int) -> nn.Module:
         return DummyNN(input_size, num_classes)
