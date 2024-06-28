@@ -54,7 +54,7 @@ class BaseVisionDataset(VisionDataset):
         download: bool = False,
     ) -> None:
         super().__init__(root, transform=transform, target_transform=target_transform)
-        assert split in ["train", "test"], f"Split {split} not supported"
+        assert split in ["train", "val", "test"] or  ["train", "test"], f"Invalid split: {split}"
         self._split = split
         self._base_folder = Path(self.root) / self._dataset_name
 

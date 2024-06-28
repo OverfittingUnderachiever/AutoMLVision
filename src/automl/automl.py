@@ -1,11 +1,3 @@
-"""AutoML class for regression tasks.
-
-This module contains an example AutoML class that simply returns predictions of a quickly trained MLP.
-You do not need to use this setup, and you can modify this however you like.
-"""
-from __future__ import annotations
-
-from typing import Any, Tuple
 import torch
 import random
 import numpy as np
@@ -14,68 +6,48 @@ import logging
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from typing import Any, Tuple
+
 from automl.dummy_model import DummyNN
+from automl.efficient_net_model import EfficientNetModel
 from automl.utils import calculate_mean_std
+
+
 from bayes_opt import BayesianOptimization
-
-from bayes_opt import BayesianOptimization
-
-
 
 logger = logging.getLogger(__name__)
 
-
 class AutoML:
-
-    def __init__(
-        self,
-        seed: int,
-    ) -> None:
+    def __init__(self, seed: int) -> None:
         self.seed = seed
         self._model: nn.Module | None = None
         self._transform = None
+        self._initialize_random_seeds()
+        self.optimizer = None  # initialize later
 
-    def fit(
-        self,
-        dataset_class: Any,
-        lr: float,  # Example hyperparameter to optimize
-    ) -> float:
-        """A reference/toy implementation of a fitting function for the AutoML class.
-        """
-        # set seed for pytorch training
+    def _initialize_random_seeds(self) -> None:
         random.seed(self.seed)
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
         torch.cuda.manual_seed(self.seed)
-
-        # Ensure deterministic behavior in CuDNN
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+        # Check if CUDA is available and set the device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {self.device}")
 
-        self._transform = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize(*calculate_mean_std(dataset_class)),
-            ]
-        )
-        dataset = dataset_class(
-            root="./data",
-            split='train',
-            download=True,
-            transform=self._transform
-        )
-        train_loader = DataLoader(dataset, batch_size=64, shuffle=True)
+    def _create_model(self, input_size: int, num_classes: int, dropout_rate: float) -> nn.Module:
+        model = EfficientNetModel(self.dataset_class, output_size=num_classes, dropout_rate=dropout_rate)
+        return model.to(self.device)  # Move model to the device
 
-        input_size = dataset_class.width * dataset_class.height * dataset_class.channels
-
-        model = DummyNN(input_size, dataset_class.num_classes)
-        criterion = nn.CrossEntropyLoss()
-        optimizer = optim.Adam(model.parameters(), lr=lr)  # Use lr provided by Bayesian optimization
-        
+    def _train_model(self, model: nn.Module, train_loader: DataLoader, lr: float, weight_decay: float, epochs: int) -> None:
+        criterion = nn.CrossEntropyLoss().to(self.device)  # Move loss function to the device
+        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)  # Include weight_decay
         model.train()
-        for epoch in range(5):
+        for epoch in range(epochs):
             loss_per_batch = []
             for _, (data, target) in enumerate(train_loader):
+                data, target = data.to(self.device), target.to(self.device)  # Move data and target to the device
                 optimizer.zero_grad()
                 output = model(data)
                 loss = criterion(output, target)
@@ -83,76 +55,88 @@ class AutoML:
                 optimizer.step()
                 loss_per_batch.append(loss.item())
             logger.info(f"Epoch {epoch + 1}, Loss: {np.mean(loss_per_batch)}")
-        model.eval()
-        self._model = model
 
-        # Return validation accuracy as the score to maximize
-        return self.evaluate(dataset_class)
-
-    def evaluate(self, dataset_class) -> float:
-        """Evaluate the model on a validation set and return the accuracy."""
-        dataset = dataset_class(
-            root="./data",
-            split='valid',  # Assuming you have a validation split
-            download=True,
-            transform=self._transform
+    def fit(self, dataset_class: Any, epochs: int = 7, lr: float = 0.003, batch_size: int = 64, dropout_rate: float = 0.5, weight_decay: float = 0.0) -> None:
+        self._transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(*calculate_mean_std(dataset_class)),
+            ]
         )
+        dataset = dataset_class(root="./data", split='train', download=True, transform=self._transform)
+        train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        input_size = dataset_class.width * dataset_class.height * dataset_class.channels
+        self._model = self._create_model(input_size, dataset_class.num_classes, dropout_rate)  # Include dropout_rate
+        self._train_model(self._model, train_loader, lr, weight_decay, epochs)  # Include weight_decay
+        return None
+
+    def evaluate_on_validation(self) -> float:
+        dataset = self.dataset_class(root="./data", split='val', download=True, transform=self._transform)
         data_loader = DataLoader(dataset, batch_size=100, shuffle=False)
-        correct = 0
-        total = 0
-        with torch.no_grad():
-            for data, target in data_loader:
-                output = self._model(data)
-                _, predicted = torch.max(output, 1)
-                total += target.size(0)
-                correct += (predicted == target).sum().item()
+        predictions, labels = self._evaluate_model(self._model, data_loader)
+        validation_loss = self._calculate_loss(predictions, labels)  # Example of calculating validation loss
+        return -validation_loss  # Return negative for minimization
 
-        accuracy = correct / total
-        return accuracy
+    def black_box_function(self, lr: float, batch_size: int, dropout_rate: float, weight_decay: float) -> float:
+        batch_size = int(round(batch_size))
+        self.fit(self.dataset_class, epochs=7, lr=lr, batch_size=batch_size, dropout_rate=dropout_rate, weight_decay=weight_decay)
+        validation_loss = self.evaluate_on_validation()
+        return validation_loss
 
-    def optimize_hyperparameters(self, dataset_class: Any):
-        """Perform Bayesian optimization to find optimal hyperparameters."""
-        pbounds = {'lr': (0.001, 0.01)}  # Example: lr as a hyperparameter to optimize
 
-        optimizer = BayesianOptimization(
-            f=lambda lr: self.fit(lr, dataset_class),
-            pbounds=pbounds,
-            verbose=2,
-            random_state=1,
-        )
+    def predict(self, dataset_class):
+        test_dataset = dataset_class(root="./data", split='test', download=True, transform=self._transform)
+        test_loader = DataLoader(test_dataset, batch_size=100, shuffle=False)
 
-        optimizer.maximize(
-            init_points=2,
-            n_iter=3,
-        )
-
-        best_params = optimizer.max['params']
-        best_lr = best_params['lr']
-
-        logger.info(f"Best hyperparameters found: LR={best_lr}")
-
-        # Now train the model with the best hyperparameters found
-        self.fit(dataset_class, lr=best_lr)
-
-    def predict(self, dataset_class) -> Tuple[np.ndarray, np.ndarray]:
-        """A reference/toy implementation of a prediction function for the AutoML class."""
-        dataset = dataset_class(
-            root="./data",
-            split='test',
-            download=True,
-            transform=self._transform
-        )
-        data_loader = DataLoader(dataset, batch_size=100, shuffle=False)
+        self._model.eval()
         predictions = []
         labels = []
-        self._model.eval()
+
         with torch.no_grad():
-            for data, target in data_loader:
+            for data, target in test_loader:
+                data, target = data.to(self.device), target.to(self.device)  # Move data and target to the device
                 output = self._model(data)
-                predicted = torch.argmax(output, 1)
-                labels.append(target.numpy())
-                predictions.append(predicted.numpy())
+                predicted = torch.argmax(output, dim=1)
+                predictions.append(predicted.cpu().numpy())  # Move predictions to CPU for numpy conversion
+                labels.append(target.cpu().numpy())  # Move labels to CPU for numpy conversion
+
         predictions = np.concatenate(predictions)
         labels = np.concatenate(labels)
 
         return predictions, labels
+
+    def _evaluate_model(self, model: torch.nn.Module, data_loader: DataLoader) -> Tuple[np.ndarray, np.ndarray]:
+        model.eval()
+        logits, labels = [], []
+        with torch.no_grad():
+            for data, target in data_loader:
+                data, target = data.to(self.device), target.to(self.device)  # Move data and target to the device
+                output = model(data)  # Get raw logits
+                logits.append(output.cpu().numpy())  # Move logits to CPU for numpy conversion
+                labels.append(target.cpu().numpy())  # Move labels to CPU for numpy conversion
+        return np.concatenate(logits), np.concatenate(labels)
+
+    def _calculate_loss(self, predictions: np.ndarray, labels: np.ndarray) -> float:
+        # Convert labels to torch LongTensor
+        labels = torch.from_numpy(labels).long().to(self.device)  # Move labels to the device
+
+        # Convert predictions to torch tensor and ensure float32
+        predictions = torch.tensor(predictions, dtype=torch.float32).to(self.device)  # Move predictions to the device
+
+        # Compute cross-entropy loss
+        criterion = nn.CrossEntropyLoss().to(self.device)  # Move loss function to the device
+        loss = criterion(predictions, labels)
+
+        return loss.item()
+
+    def optimize_hyperparameters(self, dataset_class: Any, pbounds: dict, init_points: int = 2, n_iter: int = 10) -> None:
+        self.dataset_class = dataset_class
+        self.optimizer = BayesianOptimization(
+            f=self.black_box_function,
+            pbounds=pbounds,
+            verbose=2,
+            random_state=self.seed,
+        )
+        self.optimizer.maximize(init_points=init_points, n_iter=n_iter)
+        logger.info(f"Best hyperparameters: {self.optimizer.max}")
