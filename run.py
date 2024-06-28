@@ -62,23 +62,25 @@ def main(
     automl = AutoML(seed=seed)
     # Define the hyperparameter search space
     pbounds = {
-        'lr': (0.0001, 0.01),      # Example learning rate range
-        'batch_size': (16, 128)     # Example batch size choices
+        'lr': (1e-5, 1e-2),
+        'batch_size': (256, 256),
+        'dropout_rate': (0.1, 0.5),
+        'weight_decay': (0, 0.1)
     }
     # Perform hyperparameter optimization
-    automl.optimize_hyperparameters(dataset_class, pbounds=pbounds, init_points=2, n_iter=2)
+    automl.optimize_hyperparameters(dataset_class, pbounds=pbounds, init_points=2, n_iter=20)
     logger.info(f"Best hyperparameters: {automl.optimizer.max}")
-    
+
     # Get the best hyperparameters found
-    best_lr = automl.optimizer.max['params']['lr']
-    best_batch_size = int(round(automl.optimizer.max['params']['batch_size'])) #no bo support for ints :()
+    best_params = automl.optimizer.max['params']
+    best_lr = best_params['lr']
+    best_batch_size = int(round(best_params['batch_size']))  # no bo support for ints :(
+    best_dropout_rate = best_params['dropout_rate']
+    best_weight_decay = best_params['weight_decay']
 
     # Fit the best model on the entire dataset
-    automl.fit(dataset_class, epochs=3, lr=best_lr, batch_size=best_batch_size)
-
-    # Do the same for the test dataset
+    automl.fit(dataset_class, epochs=7, lr=best_lr, batch_size=best_batch_size, dropout_rate=best_dropout_rate, weight_decay=best_weight_decay)
     test_preds, test_labels = automl.predict(dataset_class)
-
     # Write the predictions of X_test to disk
     # This will be used by github classrooms to get a performance
     # on the test set.
