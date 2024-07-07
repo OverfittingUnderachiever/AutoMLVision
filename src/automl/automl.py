@@ -12,6 +12,10 @@ from automl.dummy_model import DummyNN
 from automl.efficient_net_model import EfficientNetModel
 from automl.utils import calculate_mean_std
 
+import ray
+from ray import tune
+from ray.tune.schedulers import HyperBandScheduler
+from ray.tune.search.bayesopt import BayesOptSearch
 
 from bayes_opt import BayesianOptimization
 
@@ -78,11 +82,15 @@ class AutoML:
         validation_loss = self._calculate_loss(predictions, labels)  # Example of calculating validation loss
         return -validation_loss  # Return negative for minimization
 
-    def black_box_function(self, lr: float, batch_size: int, dropout_rate: float, weight_decay: float) -> float:
-        batch_size = int(round(batch_size))
+    def black_box_function (self, config: dict) -> None:
+        lr = config['lr']
+        batch_size = int(config['batch_size'])
+        dropout_rate = config['dropout_rate']
+        weight_decay = config['weight_decay']
         self.fit(self.dataset_class, epochs=7, lr=lr, batch_size=batch_size, dropout_rate=dropout_rate, weight_decay=weight_decay)
         validation_loss = self.evaluate_on_validation()
-        return validation_loss
+        tune.report(loss=validation_loss)
+        #return validation_loss
 
 
     def predict(self, dataset_class):
@@ -132,11 +140,27 @@ class AutoML:
 
     def optimize_hyperparameters(self, dataset_class: Any, pbounds: dict, init_points: int = 2, n_iter: int = 10) -> None:
         self.dataset_class = dataset_class
-        self.optimizer = BayesianOptimization(
-            f=self.black_box_function,
-            pbounds=pbounds,
-            verbose=2,
+        scheduler = HyperBandScheduler(metric="loss", mode="min")
+        
+        bayesopt_search = BayesOptSearch(
+            pbounds,
             random_state=self.seed,
+            metric="loss",
+            mode="min"
         )
-        self.optimizer.maximize(init_points=init_points, n_iter=n_iter)
-        logger.info(f"Best hyperparameters: {self.optimizer.max}")
+        
+        analysis = tune.run(
+            tune.with_parameters(self.black_box_function),
+            name="hyperband_optimization",
+            search_alg=bayesopt_search,
+            scheduler=scheduler,
+            num_samples=n_iter,
+            config=pbounds,
+            resources_per_trial={"cpu": 0, "gpu": 1}, 
+            verbose=1,
+        )
+        
+        best_config = analysis.get_best_config(metric="loss", mode="min")
+        print(f"Best hyperparameters: {best_config}")
+        self.best_params = best_config
+
