@@ -7,13 +7,13 @@ def global_xD(x):
     if x.shape[0] == 1:
         return global_1D(x)
     else:
-        raise NotImplementedError("Only 1D data is supported")
+        return global_xD(x[0])
 
-def local_1D(x,f,noise=0.1):
+def local_1D(x,f,noise=0.01):
     return np.round((global_1D(x)+(1-global_1D(x))*np.exp(-0.1*f)) + np.random.normal(0,noise,f.shape),2)#*0.5*np.sqrt(f)
 
-def local_xD(x,f,noise=0.1):
+def local_xD(x,f,noise=0.01):
     if x.shape[0] == 1:
         return local_1D(x,f,noise)
     else:
-        raise NotImplementedError("Only 1D data is supported")
+        return local_1D(x[0],f,noise)
