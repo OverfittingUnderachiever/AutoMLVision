@@ -2,6 +2,7 @@ import torch
 import random
 import numpy as np
 import logging
+import os
 
 from torch import nn, optim
 from torch.utils.data import DataLoader
@@ -28,6 +29,7 @@ class AutoML:
         self._transform = None
         self._initialize_random_seeds()
         self.optimizer = None  # initialize later
+        self.best_params = None
 
     def _initialize_random_seeds(self) -> None:
         random.seed(self.seed)
@@ -46,17 +48,17 @@ class AutoML:
 
     def _train_model(self, model: nn.Module, train_loader: DataLoader, lr: float, weight_decay: float, epochs: int) -> None:
         criterion = nn.CrossEntropyLoss().to(self.device)  # Move loss function to the device
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)  # Include weight_decay
+        self.optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)  # Include weight_decay
         model.train()
         for epoch in range(epochs):
             loss_per_batch = []
             for _, (data, target) in enumerate(train_loader):
                 data, target = data.to(self.device), target.to(self.device)  # Move data and target to the device
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 output = model(data)
                 loss = criterion(output, target)
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
                 loss_per_batch.append(loss.item())
             logger.info(f"Epoch {epoch + 1}, Loss: {np.mean(loss_per_batch)}")
 
@@ -80,7 +82,7 @@ class AutoML:
         data_loader = DataLoader(dataset, batch_size=100, shuffle=False)
         predictions, labels = self._evaluate_model(self._model, data_loader)
         validation_loss = self._calculate_loss(predictions, labels)  # Example of calculating validation loss
-        return -validation_loss  # Return negative for minimization
+        return validation_loss  # Return negative for minimization
 
     def black_box_function (self, config: dict) -> None:
         lr = config['lr']
@@ -89,7 +91,7 @@ class AutoML:
         weight_decay = config['weight_decay']
         self.fit(self.dataset_class, epochs=7, lr=lr, batch_size=batch_size, dropout_rate=dropout_rate, weight_decay=weight_decay)
         validation_loss = self.evaluate_on_validation()
-        tune.report(loss=validation_loss)
+        ray.train.report(dict(loss=validation_loss))
         #return validation_loss
 
 
@@ -149,18 +151,18 @@ class AutoML:
             mode="min"
         )
         
-        analysis = tune.run(
+        self.optimizer = tune.run(
             tune.with_parameters(self.black_box_function),
             name="hyperband_optimization",
             search_alg=bayesopt_search,
             scheduler=scheduler,
             num_samples=n_iter,
             config=pbounds,
-            resources_per_trial={"cpu": 0, "gpu": 1}, 
+            resources_per_trial={"cpu": 2, "gpu": 1}, 
             verbose=1,
         )
         
-        best_config = analysis.get_best_config(metric="loss", mode="min")
+        best_config = self.optimizer.get_best_config(metric="loss", mode="min")
         print(f"Best hyperparameters: {best_config}")
         self.best_params = best_config
 

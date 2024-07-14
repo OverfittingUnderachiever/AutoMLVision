@@ -80,10 +80,10 @@ def main(
     }
     # Perform hyperparameter optimization
     automl.optimize_hyperparameters(dataset_class, pbounds=pbounds, init_points=2, n_iter=20)
-    logger.info(f"Best hyperparameters: {automl.optimizer.max}")
+    logger.info(f"Best hyperparameters: {automl.best_params}")
 
     # Get the best hyperparameters found
-    best_params = automl.optimizer.max['params']
+    best_params = automl.best_params
     best_lr = best_params['lr']
     best_batch_size = int(round(best_params['batch_size']))  # no bo support for ints :(
     best_dropout_rate = best_params['dropout_rate']
