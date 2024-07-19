@@ -15,11 +15,28 @@ class ExponentialDecayNoiseKernel(Kernel):
             Y = X
         X=np.array(X)
         Y=np.array(Y)
-        return ((self.beta**self.alpha)/((X[None,:]+Y[:,None])+self.beta)**self.alpha + self.noise*np.where(X[None,:]-Y[:,None] == 0, 1, 0)).T
+        return (((self.beta**self.alpha)/((X[None,:]+Y[:,None])+self.beta)**self.alpha) + self.noise*np.where(X[None,:]-Y[:,None] == 0, 1, 0)).T
     def diag(self, X):
         return np.diag(self(X))
     def is_stationary(self):
         return False
+    
+# class WarpedMatern(Kernel):
+#     def __init__(self, nu=2.5, a=1.0,b=0.5,theta=0.1):
+#         self.beta = beta
+#         self.alpha = alpha
+#         self.noise = noise
+#         self.nu = nu
+#     def __call__(self, X, Y=None,eval_gradient=False):
+#         if Y is None:
+#             Y = X
+#         X=np.array(X)
+#         Y=np.array(Y)
+#         return (((self.beta**self.alpha)/((X[None,:]+Y[:,None])+self.beta)**self.alpha) + self.noise*np.where(X[None,:]-Y[:,None] == 0, 1, 0)).T
+#     def diag(self, X):
+#         return np.diag(self(X))
+#     def is_stationary(self):
+#         return False
 
 def compute_ks(x,new_x,kernel):
     k_x = kernel(x)
@@ -35,28 +52,34 @@ def compute_k_t_inv_and_lambda(x,x_dict,kernel_local):
     lambdas=[]
     for x_n in x:
         k_t=kernel_local(x_dict['_'.join([str(c) for c in x_n])][0])
+        # print(x_n)
+        # print(x_dict['_'.join([str(c) for c in x_n])])
+        # print(k_t)
         k_t_invs.append(np.linalg.inv(k_t))
         lambdas.append(np.sum(k_t_invs[-1]))
     return sc.linalg.block_diag(*k_t_invs),sc.linalg.block_diag(*lambdas)
 
-def compute_o(config_list,config_dict):
+def compute_o_osum(config_list,config_dict):
     o=[]
+    o_sum=0
+    o_sums=[0]
     for config in config_list:
         observations=config_dict['_'.join([str(c) for c in config])][1]
         o.append(np.ones((len(observations),1)))
-    return sc.linalg.block_diag(*o)
+        o_sum+=len(observations)
+        o_sums.append(o_sum)
+    return sc.linalg.block_diag(*o),o_sums
 
-def compute_gamma(o,k_t_inv,y,m):
+def compute_gamma(o,o_sum,k_t_inv,y,m):
     ktinv_yom=k_t_inv@(y-o@m)
     result=np.empty(0)
-    o_sums=np.cumsum(np.sum(o,axis=0),dtype=int)
-    o_sums=np.insert(o_sums,0,0)
     for i in range(o.shape[1]):
-        result=np.append(result,np.sum(ktinv_yom[o_sums[i]:o_sums[i+1]]))
+        result=np.append(result,np.sum(ktinv_yom[o_sum[i]:o_sum[i+1]]))
     return result
 
-def constant_mean(mean,x):
-    return mean*np.ones(x.shape[0])
+def constant_mean(y_vec,x):
+    print(np.average(y_vec))
+    return np.average(y_vec)*np.ones(x.shape[0])
 
 def compute_y_vector(config_list,config_dict):
     y_vec=np.empty(0)
@@ -78,7 +101,7 @@ def compute_mu(m,c,gamma):
 
 # Equation 14/19:
 def compute_mu_x_star(m,k_x_star,k_x_inv,mu,means_vec):
-    return m+k_x_star.T@k_x_inv@(mu-means_vec)
+    return k_x_star.T@k_x_inv@(mu-means_vec)+m
 def compute_sigma_x_star_star(k_x_star_star,k_x_star,k_x,lambd_inv):
     return k_x_star_star-k_x_star.T@np.linalg.inv(k_x+lambd_inv)@k_x_star
 
@@ -92,7 +115,7 @@ def compute_sigma_n_star_new(k_t_star_star,sigma_star_star):
 def compute_mu_n_star_ex(k_t_n_star,k_t_n_inv,y_n,omega_n,mu_n):
     return k_t_n_star.T@k_t_n_inv@y_n+(omega_n*mu_n)
 def compute_sigma_n_star_ex(k_t_n_star_star,k_t_n_star,k_t_n_inv,omega_n,c_nn):
-    return k_t_n_star_star-k_t_n_star.T@k_t_n_inv@k_t_n_star+omega_n@(c_nn*omega_n.T)
+    return k_t_n_star_star-k_t_n_star.T@k_t_n_inv@k_t_n_star+omega_n@(c_nn[0]*omega_n.T)
 
 def compute_entropy(mu_vector,var_vector,n_samples):
     var_mat=np.diag(var_vector)
@@ -106,31 +129,33 @@ def compute_ei_at_x(mu,var,best_mu):
     z=(best_mu-mu)/np.sqrt(var)
     return np.sqrt(var)*(z*sc.stats.norm.cdf(z))+sc.stats.norm.pdf(z)
 
-def compute_mu_var_cov_c(observed_configs_list,observed_configs_dicts,new_configs,kernel_global,kernel_local,mean):
+def compute_mu_var_cov_c(observed_configs_list,observed_configs_dicts,new_configs,kernel_global,kernel_local):
     # Calculate the mean and variance at the asymptote for each config using equation 19
-    print("Computing ks")
+    # print("Computing ks")
     k_x,k_x_star,k_x_star_star = compute_ks(observed_configs_list,new_configs,kernel_global)
-    print("Inverting k_x")
+    # print("Inverting k_x")
     k_x_inv = np.linalg.inv(k_x)
-    print("Computing k_t and inverse and lambda")
+    # print("Computing k_t and inverse and lambda")
     k_t_inv,lambd=compute_k_t_inv_and_lambda(observed_configs_list,observed_configs_dicts,kernel_local)
-    print("Computing means")
-    means_vec = constant_mean(mean,observed_configs_list)
-    print("Computing o")
-    o=compute_o(observed_configs_list,observed_configs_dicts)
-    print("Inverting lambda")
-    lambd_inv = np.linalg.inv(lambd)
-    print("Computing c")
-    c=compute_c(k_x_inv,lambd)
-    print("Computing y")
+    # print("Computing y")
     y_vec = compute_y_vector(observed_configs_list,observed_configs_dicts)
-    print("Computing gamma")
-    gamma = compute_gamma(o,k_t_inv,y_vec,means_vec)
-    print("Computing mu_global")
+    # print("Computing means")
+    means_vec = constant_mean(y_vec,observed_configs_list)
+    # print(means_vec)
+    # print("Computing o")
+    o,o_sum=compute_o_osum(observed_configs_list,observed_configs_dicts)
+    # print("Inverting lambda")
+    lambd_inv = np.linalg.inv(lambd)
+    # print("Computing c")
+    c=compute_c(k_x_inv,lambd)
+    # print("Computing gamma")
+    gamma = compute_gamma(o,o_sum,k_t_inv,y_vec,means_vec)
+    # print("Computing mu_global")
     mu_global = compute_mu(means_vec,c,gamma)
-    print("Computing mu")
-    mu = compute_mu_x_star(constant_mean(mean,new_configs),k_x_star,k_x_inv,mu_global,means_vec)
-    print("Computing cov")
+    # print(mu_global)
+    # print("Computing mu")
+    mu = compute_mu_x_star(constant_mean(y_vec,new_configs),k_x_star,k_x_inv,mu_global,means_vec)
+    # print("Computing cov")
     cov = compute_sigma_x_star_star(k_x_star_star,k_x_star,k_x,lambd_inv)
     var=np.diag(cov)
     return mu,var,cov,c
@@ -150,7 +175,7 @@ def init_configs(local_function,hp_bounds,n_init_configs=10,n_init_epochs=5):
             if not np.any(np.all(np.isin(observed_configs_list,new_config),axis=1)):
                 break
         # Observe the new configuration for n_init_epochs epochs
-        f_space = np.linspace(1,n_init_epochs,n_init_epochs)
+        f_space = np.linspace(0,n_init_epochs-1,n_init_epochs)
         experimental_data=local_function(new_config,f_space)
         observed_configs_dicts['_'.join([str(config) for config in new_config])]=(f_space,experimental_data)
         observed_configs_list=np.vstack([new_config,observed_configs_list])
@@ -175,17 +200,17 @@ def update_configs(local_function,observed_configs_list,observed_configs_dicts,n
 
 
 class FreezeThaw():
-    def __init__(self,hp_bounds,observed_configs_list,observed_configs_dicts,inferred_mean=0.8,global_kernel=None,local_kernel=None):
+    def __init__(self,hp_bounds,observed_configs_list,observed_configs_dicts,global_kernel=None,local_kernel=None,alpha=1.0,beta=0.5,noise=0.1):
         self.kernel_global = Matern(nu=2.5) if global_kernel is None else global_kernel
-        self.kernel_local = ExponentialDecayNoiseKernel(alpha=1,beta=0.5,noise=0.1) if local_kernel is None else local_kernel
-        self.mean=inferred_mean
+        self.kernel_local = ExponentialDecayNoiseKernel(alpha=alpha,beta=beta,noise=noise) if local_kernel is None else local_kernel
+        # self.mean=inferred_mean
         self.bounds=hp_bounds
 
         self.observed_configs_list=observed_configs_list
         self.observed_configs_dicts=observed_configs_dicts
         # print(self.observed_configs_dicts)
         # print(self.observed_configs_list)
-    
+
 
     def iterate(self,b_old=10,b_new=3,n_samples_mc=1000,n_fant=5,ei_n_samples = 1000,pred_epoch = 1):
         # Fill the basket with configs
@@ -215,8 +240,8 @@ class FreezeThaw():
             ei_configs = np.concatenate([ei_configs,self.observed_configs_list])
         ei_configs=np.array(ei_configs)
         # print(ei_configs)
-        print("\nComputing mu, var for all ei-configs")
-        mu,var,_,c=compute_mu_var_cov_c(self.observed_configs_list,self.observed_configs_dicts,ei_configs,self.kernel_global,self.kernel_local,self.mean)
+        # print("\nComputing mu, var for all ei-configs")
+        mu,var,_,c=compute_mu_var_cov_c(self.observed_configs_list,self.observed_configs_dicts,ei_configs,self.kernel_global,self.kernel_local)
         # print(f"μx*:\n{mu}")
         # print(f"Σx**:\n{var}")
 
@@ -257,14 +282,14 @@ class FreezeThaw():
         h_p_min=compute_entropy(baskets_mu_var[:,0],baskets_mu_var[:,1],n_samples_mc)
         # print(f"Entropy of P_min: {h_p_min}")
         a=np.zeros(basket_new.shape[0]+basket_old.shape[0])
-        pred_epochs=np.linspace(1,pred_epoch,pred_epoch)
+        pred_epochs=np.linspace(0,pred_epoch-1,pred_epoch)
         epochs_list=[]
 
         # For each config in the basket, N_FANT times fantasize an observation and recompute the information gain from it, collecting it in a
         for k_config,chosen_config in enumerate(basket_new):
             # Fantasize an observation using Equation 21
             # print(f"Chosen new config: {chosen_config}")
-            print(f"Fantasizing new config: {chosen_config} ({k_config}/{basket_new.shape[0]})                                ",end='\r',flush=True)
+            # print(f"Fantasizing new config: {chosen_config} ({k_config}/{basket_new.shape[0]})                                ",end='\r',flush=True)
             mu_n_star_new = compute_mu_n_star_new(basket_new_mu_var[k_config][0],pred_epochs)
             # print(f"μn* (new):\n{mu_n_star_new}")
             sigma_n_star_new = compute_sigma_n_star_new(compute_k_star_star(pred_epochs,self.kernel_local),basket_new_mu_var[k_config][1])
@@ -273,16 +298,14 @@ class FreezeThaw():
 
             for _ in range(n_fant):
                 # Fantasize an observation using the mu and sigma of the new config
-                fantasized_observation = np.random.multivariate_normal(mu_n_star_new,sigma_n_star_new)
+                fantasized_observation = np.random.multivariate_normal(mu_n_star_new,np.sqrt(sigma_n_star_new))
 
                 # Compute the global mus and sigmas now including the fantasized observation
                 observations_incl_list=np.vstack([self.observed_configs_list,chosen_config])
                 observations_incl_dicts=self.observed_configs_dicts.copy()
                 observations_incl_dicts['_'.join([str(c) for c in chosen_config])]=(pred_epochs,fantasized_observation)
 
-                print("")
-                print(f"Costly op                                       ")
-                mu_y,var_y,_,_=compute_mu_var_cov_c(observations_incl_list,observations_incl_dicts,baskets_combined,self.kernel_global,self.kernel_local,self.mean)
+                mu_y,var_y,_,_=compute_mu_var_cov_c(observations_incl_list,observations_incl_dicts,baskets_combined,self.kernel_global,self.kernel_local)
                 # print(f"μx*:\n{mu_y}")
                 # print(f"Σx**:\n{var_y}")
 
@@ -293,8 +316,9 @@ class FreezeThaw():
 
         for k_config,chosen_config in enumerate(basket_old):
             # print(f"Chosen existing config: {chosen_config}")
-            print(f"Fantasizing existing config: {chosen_config} ({k_config}/{basket_old.shape[0]})                                ",end='\r',flush=True)
-            pred_epochs_n=pred_epochs+self.observed_configs_dicts['_'.join([str(c) for c in chosen_config])][0][-1]
+            # print(f"Fantasizing existing config: {chosen_config} ({k_config}/{basket_old.shape[0]})                                ",end='\r',flush=True)
+            pred_epochs_n=pred_epochs+1+self.observed_configs_dicts['_'.join([str(c) for c in chosen_config])][0][-1]
+            # print(pred_epochs_n)
             epochs_list.append(pred_epochs_n)
             curve_n=self.observed_configs_dicts['_'.join([str(c) for c in chosen_config])]
 
@@ -308,7 +332,7 @@ class FreezeThaw():
 
             for _ in range(n_fant):
                 # Fantasize an observation using Equation 20
-                fantasized_observation = np.random.multivariate_normal(mu_n_star_ex,sigma_n_star_ex)
+                fantasized_observation = np.random.multivariate_normal(mu_n_star_ex,np.sqrt(sigma_n_star_ex))
                 # print(f"Fantasized observation: {fantasized_observation}")
 
                 # Compute the global mus and sigmas now including the fantasized observation
@@ -318,7 +342,7 @@ class FreezeThaw():
                 observations_incl_dicts['_'.join([str(c) for c in chosen_config])]=(np.append(old_config_entry[0],pred_epochs_n),np.append(old_config_entry[1],fantasized_observation))
                 # print(observations_incl_dicts['_'.join([str(c) for c in chosen_config])])
 
-                mu_y,var_y,_,_=compute_mu_var_cov_c(observations_incl_list,observations_incl_dicts,baskets_combined,self.kernel_global,self.kernel_local,self.mean)
+                mu_y,var_y,_,_=compute_mu_var_cov_c(observations_incl_list,observations_incl_dicts,baskets_combined,self.kernel_global,self.kernel_local)
                 # print(f"μx*:\n{mu}")
                 # print(f"Σx**:\n{var}")
 
@@ -333,3 +357,18 @@ class FreezeThaw():
         best_config=baskets_combined[np.argmax(a)]
         print(f"Next config: {best_config} ({'new' if np.argmax(a)<b_new else 'old'})")
         return best_config,epochs_list[np.argmax(a)]
+
+    def predict_global(self,configs):
+        configs=np.array(configs)
+        mu,var,_,_=compute_mu_var_cov_c(self.observed_configs_list,self.observed_configs_dicts,configs,self.kernel_global,self.kernel_local)
+        return mu,var
+    
+    def predict_local(self,config,epochs):
+        mu,_,_,c=compute_mu_var_cov_c(self.observed_configs_list,self.observed_configs_dicts,np.array([config]),self.kernel_global,self.kernel_local)
+        curve_n=self.observed_configs_dicts['_'.join([str(c) for c in config])]
+        k_t_n,k_t_n_star,k_t_n_star_star=compute_ks(curve_n[0],epochs,self.kernel_local)
+        k_t_n_inv=np.linalg.inv(k_t_n)
+        omega_n = compute_omega(k_t_n_star,k_t_n_inv)
+        mu_n_star_ex = compute_mu_n_star_ex(k_t_n_star,k_t_n_inv,curve_n[1],omega_n,mu)
+        sigma_n_star_ex = compute_sigma_n_star_ex(k_t_n_star_star,k_t_n_star,k_t_n_inv,omega_n,[c[0,0]])
+        return mu_n_star_ex,sigma_n_star_ex
