@@ -78,7 +78,6 @@ def compute_gamma(o,o_sum,k_t_inv,y,m):
     return result
 
 def constant_mean(y_vec,x):
-    print(np.average(y_vec))
     return np.average(y_vec)*np.ones(x.shape[0])
 
 def compute_y_vector(config_list,config_dict):
@@ -94,6 +93,8 @@ def compute_c(k_x_inv,lambd):
 def compute_omega(k_t_n_star,k_t_n_inv):
     obs_steps=k_t_n_inv.shape[0]
     predict_steps=k_t_n_star.shape[1]
+    # print(k_t_n_star)
+    # print(k_t_n_inv)
     return np.ones(predict_steps)-k_t_n_star.T@k_t_n_inv@np.ones(obs_steps)
 
 def compute_mu(m,c,gamma):
@@ -113,7 +114,7 @@ def compute_sigma_n_star_new(k_t_star_star,sigma_star_star):
 
 # Equation 15/20:
 def compute_mu_n_star_ex(k_t_n_star,k_t_n_inv,y_n,omega_n,mu_n):
-    return k_t_n_star.T@k_t_n_inv@y_n+(omega_n*mu_n)
+    return (omega_n*mu_n)+k_t_n_star.T@k_t_n_inv@y_n
 def compute_sigma_n_star_ex(k_t_n_star_star,k_t_n_star,k_t_n_inv,omega_n,c_nn):
     return k_t_n_star_star-k_t_n_star.T@k_t_n_inv@k_t_n_star+omega_n@(c_nn[0]*omega_n.T)
 
@@ -175,7 +176,7 @@ def init_configs(local_function,hp_bounds,n_init_configs=10,n_init_epochs=5):
             if not np.any(np.all(np.isin(observed_configs_list,new_config),axis=1)):
                 break
         # Observe the new configuration for n_init_epochs epochs
-        f_space = np.linspace(0,n_init_epochs-1,n_init_epochs)
+        f_space = np.linspace(1,n_init_epochs,n_init_epochs)
         experimental_data=local_function(new_config,f_space)
         observed_configs_dicts['_'.join([str(config) for config in new_config])]=(f_space,experimental_data)
         observed_configs_list=np.vstack([new_config,observed_configs_list])
@@ -228,7 +229,7 @@ class FreezeThaw():
         # Sample N_EI_SAMPLES new configurations
         ei_configs = []
         for _ in range(ei_n_samples):
-            print(f"Sampling new config {len(ei_configs)+1}/{ei_n_samples}",end='\r',flush=True)
+            # print(f"Sampling new config {len(ei_configs)+1}/{ei_n_samples}",end='\r',flush=True)
             while True:
                 new_config=np.empty(0)
                 for key,_ in self.bounds.items():
@@ -253,7 +254,7 @@ class FreezeThaw():
 
         # Greedily choose the best HP-config using Equation 19 & 3 until B_OLD existing configs and B_NEW new configs are found
         for n_sample,sampled_ei_config in enumerate(ei_configs_ranked):
-            print(f"Adding configs to baskets {basket_new.shape[0]+basket_old.shape[0]}/{b_old+b_new}               ",end='\r',flush=True)
+            # print(f"Adding configs to baskets {basket_new.shape[0]+basket_old.shape[0]}/{b_old+b_new}               ",end='\r',flush=True)
             # Sample another config from EI and try to add it to the basket
             # If it is already in the basket, or the basket is full, skip it
             if not np.any(np.all(np.isin(self.observed_configs_list,sampled_ei_config),axis=1)) and (basket_new.shape[0]==0 or b_new>basket_new.shape[0] and not np.any(np.all(np.isin(basket_new,sampled_ei_config),axis=1))):
@@ -282,7 +283,7 @@ class FreezeThaw():
         h_p_min=compute_entropy(baskets_mu_var[:,0],baskets_mu_var[:,1],n_samples_mc)
         # print(f"Entropy of P_min: {h_p_min}")
         a=np.zeros(basket_new.shape[0]+basket_old.shape[0])
-        pred_epochs=np.linspace(0,pred_epoch-1,pred_epoch)
+        pred_epochs=np.linspace(1,pred_epoch,pred_epoch)
         epochs_list=[]
 
         # For each config in the basket, N_FANT times fantasize an observation and recompute the information gain from it, collecting it in a
@@ -317,7 +318,7 @@ class FreezeThaw():
         for k_config,chosen_config in enumerate(basket_old):
             # print(f"Chosen existing config: {chosen_config}")
             # print(f"Fantasizing existing config: {chosen_config} ({k_config}/{basket_old.shape[0]})                                ",end='\r',flush=True)
-            pred_epochs_n=pred_epochs+1+self.observed_configs_dicts['_'.join([str(c) for c in chosen_config])][0][-1]
+            pred_epochs_n=pred_epochs+self.observed_configs_dicts['_'.join([str(c) for c in chosen_config])][0][-1]
             # print(pred_epochs_n)
             epochs_list.append(pred_epochs_n)
             curve_n=self.observed_configs_dicts['_'.join([str(c) for c in chosen_config])]
@@ -355,7 +356,7 @@ class FreezeThaw():
 
         # Select the config with the highest information gain
         best_config=baskets_combined[np.argmax(a)]
-        print(f"Next config: {best_config} ({'new' if np.argmax(a)<b_new else 'old'})")
+        # print(f"Next config: {best_config} ({'new' if np.argmax(a)<b_new else 'old'})")
         return best_config,epochs_list[np.argmax(a)]
 
     def predict_global(self,configs):
