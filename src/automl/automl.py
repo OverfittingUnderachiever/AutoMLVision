@@ -12,6 +12,8 @@ from automl.dummy_model import DummyNN
 from automl.efficient_net_model import EfficientNetModel
 from automl.utils import calculate_mean_std
 
+from freeze_thaw import FreezeThaw
+import itertools
 
 from bayes_opt import BayesianOptimization
 
@@ -78,9 +80,10 @@ class AutoML:
         validation_loss = self._calculate_loss(predictions, labels)  # Example of calculating validation loss
         return -validation_loss  # Return negative for minimization
 
-    def black_box_function(self, lr: float, batch_size: int, dropout_rate: float, weight_decay: float) -> float:
+    def black_box_function(self, lr: float, batch_size: int, dropout_rate: float, weight_decay: float, epochs: int) -> float:
         batch_size = int(round(batch_size))
-        self.fit(self.dataset_class, epochs=7, lr=lr, batch_size=batch_size, dropout_rate=dropout_rate, weight_decay=weight_decay)
+        # TODO: implement freeze-thawing of models (in .fit)
+        self.fit(self.dataset_class, epochs=epochs, lr=lr, batch_size=batch_size, dropout_rate=dropout_rate, weight_decay=weight_decay)
         validation_loss = self.evaluate_on_validation()
         return validation_loss
 
@@ -129,14 +132,63 @@ class AutoML:
         loss = criterion(predictions, labels)
 
         return loss.item()
+    
+    def freeze_thaw(self,pbounds: dict, init_points: int = 2, n_iter: int = 10, init_epochs = 2, pred_epochs: int = 2):
+        bounds=pbounds
+        # Start by observing n_init_configs random configurations for init_epochs epoch each
+        observed_configs_dicts={}
+        observed_configs_list=np.empty((0,len(bounds.keys())))
+        for _ in range(init_points):
+            while True:
+                new_config=np.empty(0)
+                for key,_ in bounds.items():
+                    new_config=np.append(new_config,np.round(np.random.uniform(bounds[key][0],bounds[key][1]),2))
+                if not np.any(np.all(np.isin(observed_configs_list,new_config),axis=1)):
+                    break
+            # Observe the new configuration for init_epochs epochs
+            f_space = np.linspace(1,init_epochs,init_epochs)
+            experimental_data=self.black_box_function(new_config,f_space) #Adapt black_box_function to take dict?
+            observed_configs_dicts['_'.join([str(config) for config in new_config])]=(f_space,experimental_data)
+            observed_configs_list=np.vstack([new_config,observed_configs_list])
+        observed_configs_list=np.array(observed_configs_list)
 
-    def optimize_hyperparameters(self, dataset_class: Any, pbounds: dict, init_points: int = 2, n_iter: int = 10) -> None:
+        for _i in range(n_iter):
+            ft=FreezeThaw(bounds,observed_configs_list,observed_configs_dicts)
+            # Find the next configuration to evaluate
+            new_config,new_epochs=ft.iterate(pred_epoch=pred_epochs)
+            # Evaluate the new configuration
+            if np.any(np.all(np.isin(observed_configs_list,new_config),axis=1)):
+                results=self.black_box_function(new_config,new_epochs)
+                old_config_entry=observed_configs_dicts['_'.join([str(c) for c in new_config])]
+                observed_configs_dicts['_'.join([str(c) for c in new_config])]=(np.append(old_config_entry[0],new_epochs),np.append(old_config_entry[1],results))
+            else:
+                results=self.black_box_function(new_config,new_epochs)
+                observed_configs_list=np.vstack([observed_configs_list,new_config])
+                observed_configs_dicts['_'.join([str(c) for c in new_config])]=(new_epochs,results)
+        
+        # Find the best configuration in the GP
+        num_steps=100
+        param_values = [list(np.linspace(lower, upper, num_steps)) for lower, upper in bounds.values()]
+        entire_config_space = list(itertools.product(*param_values))
+        mean_prediction,_std_prediction=ft.predict_global(entire_config_space)
+        best_config=entire_config_space[np.argmin(mean_prediction)]
+        best_config_dict={}
+        for key in bounds:
+            best_config_dict[key]=best_config
+        return {"params":best_config_dict}
+
+
+    def optimize_hyperparameters(self, dataset_class: Any, pbounds: dict, init_points: int = 2, n_iter: int = 10, freeze_thaw=False) -> None:
         self.dataset_class = dataset_class
-        self.optimizer = BayesianOptimization(
-            f=self.black_box_function,
-            pbounds=pbounds,
-            verbose=2,
-            random_state=self.seed,
-        )
+        if freeze_thaw:
+            result=self.freeze_thaw(pbounds,init_points,n_iter)
+            logger.info(f"Best hyperparameters: {result}")
+        else:
+            self.optimizer = BayesianOptimization(
+                f=self.black_box_function,
+                pbounds=pbounds,
+                verbose=2,
+                random_state=self.seed,
+            )
         self.optimizer.maximize(init_points=init_points, n_iter=n_iter)
         logger.info(f"Best hyperparameters: {self.optimizer.max}")
