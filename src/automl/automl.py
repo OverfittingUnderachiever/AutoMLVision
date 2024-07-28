@@ -147,7 +147,7 @@ class AutoML:
                     break
             # Observe the new configuration for init_epochs epochs
             f_space = np.linspace(1,init_epochs,init_epochs)
-            experimental_data=self.black_box_function(new_config,f_space) #Adapt black_box_function to take dict?
+            experimental_data=self.black_box_function(lr=new_config[0],batch_size=new_config[1],dropout_rate=new_config[2],weight_decay=new_config[3],epochs=f_space[-1]) #Adapt black_box_function to take dict?
             observed_configs_dicts['_'.join([str(config) for config in new_config])]=(f_space,experimental_data)
             observed_configs_list=np.vstack([new_config,observed_configs_list])
         observed_configs_list=np.array(observed_configs_list)
@@ -158,11 +158,11 @@ class AutoML:
             new_config,new_epochs=ft.iterate(pred_epoch=pred_epochs)
             # Evaluate the new configuration
             if np.any(np.all(np.isin(observed_configs_list,new_config),axis=1)):
-                results=self.black_box_function(new_config,new_epochs)
+                results=self.black_box_function(lr=new_config[0],batch_size=new_config[1],dropout_rate=new_config[2],weight_decay=new_config[3],epochs=new_epochs[-1])
                 old_config_entry=observed_configs_dicts['_'.join([str(c) for c in new_config])]
                 observed_configs_dicts['_'.join([str(c) for c in new_config])]=(np.append(old_config_entry[0],new_epochs),np.append(old_config_entry[1],results))
             else:
-                results=self.black_box_function(new_config,new_epochs)
+                results=self.black_box_function(lr=new_config[0],batch_size=new_config[1],dropout_rate=new_config[2],weight_decay=new_config[3],epochs=new_epochs[-1])
                 observed_configs_list=np.vstack([observed_configs_list,new_config])
                 observed_configs_dicts['_'.join([str(c) for c in new_config])]=(new_epochs,results)
         
